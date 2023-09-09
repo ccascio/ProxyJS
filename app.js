@@ -1,64 +1,42 @@
-// app.js
+import axios from 'axios'
 
-const express = require('express');
-const axios = require('axios');
+const apiKey = process.env.openai
+const organization = process.env.organization
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+axios.defaults.headers.common['Authorization'] = `Bearer ${apiKey}`
+axios.defaults.headers.common['OpenAI-Organization'] = organization
+axios.defaults.headers.common['Content-Type'] = 'application/json'
+axios.defaults.transformResponse = [(data) => data]
 
-app.use(express.json());
+export default async function handler(req, res) {
+  if (req.method == 'POST') {
+    try {
+      const response = await axios({
+        method: 'POST',
+        url: 'https://api.openai.com/v1/chat/completions',
+        data: req.body, 
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        responseType: 'stream'
+      });
 
-// Middleware to attach headers
-app.use((req, res, next) => {
-  // Retrieve the API key from the environment variable
-  const apiKey = process.env.openai;
-  const organization = process.env.organization;
+      // Collect chunks in an array
+      const chunks = []
 
-  // Attach headers to the axios instance
-  axios.defaults.headers.common['Authorization'] = `Bearer ${apiKey}`;
-  axios.defaults.headers.common['OpenAI-Organization'] = organization;
-  axios.defaults.headers.common['Content-Type'] = 'application/json';
-  // Add this to configure axios global defaults
-  axios.defaults.transformResponse = [data => data];
-  next();
-});
+      response.data.on('data', (chunk) => {
+        chunks.push(chunk); 
+      });
 
-
-// Endpoint to receive JSON payload and call OpenAI API
-app.post('/api/chat', async (req, res) => {
-  try {
-    console.log(req.body)
-    // Make request 
-    const response = await axios({
-      method: 'POST',
-      url: 'https://api.openai.com/v1/chat/completions',
-      data: req.body, 
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      responseType: 'stream'
-    });
-
-    // Set streaming headers
-    res.set('Content-Type', 'text/event-stream'); 
-    res.set('Connection', 'keep-alive');
-
-    // Stream response chunks
-    response.data.on('data', (chunk) => {
-      console.log(chunk.toString()) // convert to string
-      res.write(chunk); 
-    });
-
-    response.data.on('end', () => {
-      res.end(); 
-    });
-  } catch (error) {
-    console.error('Error:', error.message);
-    //console.log(error.response.data)
-    res.status(500).json({ error: 'Internal Server Error' });
+      response.data.on('end', () => {
+        res.status(200).json(chunks.join('')); 
+      });
+    } catch (error) {
+      console.error('Error:', error.message);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+  else {
+    res.status(404).json({error: "API route not found"})
+  }
+}
